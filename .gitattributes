@@ -1,0 +1,7 @@
+# cmd.exe can miss goto labels in batch files with LF-only line endings.
+*.bat text eol=crlf
+# bash can't run scripts with CRLF line endings.
+*.sh text eol=lf
+*.ico binary
+*.icns binary
+*.png binary

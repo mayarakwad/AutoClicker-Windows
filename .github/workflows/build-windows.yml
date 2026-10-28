@@ -1,0 +1,87 @@
+# Builds AutoClicker.exe on a GitHub-hosted Windows machine, runs the tests
+# there, and checks the built exe starts. Download it from the run's Artifacts.
+# Pushing a version tag (git tag v1.0.1 && git push origin v1.0.1) also
+# publishes the exe as a public GitHub Release.
+name: Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # only used by the last step, to publish a release for v* tags
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requirements
+        shell: bash
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install -r requirements.txt
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set +e
+          .venv/Scripts/python -m unittest -v 2>&1 | tee test-output.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # As annotations, failures are readable without signing in, unlike the log.
+            .venv/Scripts/python .github/annotate_test_failures.py test-output.txt
+          fi
+          exit "$status"
+
+      - name: Build AutoClicker.exe
+        shell: cmd
+        run: build.bat
+
+      - name: Upload the exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoClicker-Windows
+          path: dist/AutoClicker.exe
+          if-no-files-found: error
+
+      - name: Check the built exe starts
+        shell: pwsh
+        run: |
+          # Fresh settings folder, so nothing is written to the runner's profile.
+          $env:APPDATA = (New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\appdata").FullName
+          $app = Start-Process -FilePath dist\AutoClicker.exe -PassThru
+          Start-Sleep -Seconds 15  # the one-file exe unpacks itself first
+          if ($app.HasExited) {
+            Write-Output "::error title=AutoClicker exited during startup (code $($app.ExitCode))::It closed within 15 seconds of starting."
+            exit 1
+          }
+          taskkill /PID $app.Id /T /F | Out-Null  # /T: the one-file exe runs the app as a child process
+
+      - name: Publish release (v* tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          AutoClicker for Windows 10 and 11. Download with caution: the exe isn't code-signed.
+
+          Download and start it from PowerShell:
+
+          ```
+          $ProgressPreference='SilentlyContinue'; $d="$env:LOCALAPPDATA\AutoClicker"; New-Item -ItemType Directory -Force $d | Out-Null; Invoke-WebRequest https://github.com/mayarakwad/AutoClicker-Windows/releases/latest/download/AutoClicker.exe -OutFile "$d\AutoClicker.exe"; Start-Process "$d\AutoClicker.exe"
+          ```
+
+          If Windows says "An Application Control policy has blocked this file", Smart App Control is on and blocks unsigned apps; run it from source instead (see the README).
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/AutoClicker.exe \
+            --title "AutoClicker $GITHUB_REF_NAME" --notes-file release-notes.md
