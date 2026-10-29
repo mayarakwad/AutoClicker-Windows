@@ -48,7 +48,9 @@ Use `python` instead of `pythonw` to keep a console window open for error messag
 
 ## How to use
 
-- **Click interval:** hours, mins, secs and milliseconds (at least 1 ms in total). Tick **Random offset ± N ms** to vary each delay randomly by up to N ms; a delay never drops below 1 ms.
+- **Click interval:** hours, mins, secs, milliseconds and nanoseconds, at least 0.1 ms (100000 ns) in total. For example, 1 ms + 500000 ns = 1.5 ms. Tick **Random offset ± N ms** to vary each delay randomly by up to N ms; a delay never drops below 0.1 ms.
+  - Intervals under 2 ms are timed by watching the clock instead of sleeping, so one CPU core stays busy while clicking that fast.
+  - Windows limits how fast clicks actually go through. On the development PC that was about 3,500 clicks a second at the cursor and 1,500 at a picked location. Shorter intervals just click that fast, and many apps and games don't register clicks that quickly.
 - **Click options:** mouse button (Left/Right/Middle) and click type (Single/Double). A double click counts as one click in the status line.
 - **Click repeat:** stop after N clicks, or repeat until stopped.
 - **Cursor position:**

@@ -7,7 +7,7 @@ from tkinter import ttk
 import platforms
 import settings
 import theme
-from engine import ClickConfig, ClickEngine
+from engine import MIN_INTERVAL_MS, MIN_INTERVAL_NS, ClickConfig, ClickEngine
 from hotkey_dialog import HotkeyDialog
 from hotkeys import DEFAULT_HOTKEY, HotkeyListener, combo_problem, display_name
 from platforms import PointPicker, on_screen
@@ -100,8 +100,8 @@ class App:
         digits = (root.register(_is_digits), "%P")
         coordinate = (root.register(_is_coordinate), "%P")
 
-        def number_entry(parent, var, validate=digits):
-            return ttk.Entry(parent, textvariable=var, width=6, justify="right",
+        def number_entry(parent, var, validate=digits, width=6):
+            return ttk.Entry(parent, textvariable=var, width=width, justify="right",
                              validate="key", validatecommand=validate)
 
         box = ttk.LabelFrame(outer, text="Click interval", padding=(10, 6))
@@ -110,12 +110,15 @@ class App:
         self.mins = tk.StringVar(value="0")
         self.secs = tk.StringVar(value="0")
         self.millis = tk.StringVar(value="100")
-        fields = ((self.hours, "hours"), (self.mins, "mins"), (self.secs, "secs"), (self.millis, "milliseconds"))
+        self.nanos = tk.StringVar(value="0")
+        fields = ((self.hours, "hours"), (self.mins, "mins"), (self.secs, "secs"),
+                  (self.millis, "milliseconds"), (self.nanos, "nanoseconds"))
         for i, (var, label) in enumerate(fields):
-            number_entry(box, var).grid(row=0, column=i * 2, padx=(0 if i == 0 else 10, 4))
+            width = 10 if var is self.nanos else 6  # up to 999999999
+            number_entry(box, var, width=width).grid(row=0, column=i * 2, padx=(0 if i == 0 else 10, 4))
             ttk.Label(box, text=label).grid(row=0, column=i * 2 + 1, sticky="w")
         row = ttk.Frame(box)
-        row.grid(row=1, column=0, columnspan=8, sticky="w", pady=(6, 0))
+        row.grid(row=1, column=0, columnspan=10, sticky="w", pady=(6, 0))
         self.use_offset = tk.BooleanVar(value=False)
         self.offset = tk.StringVar(value="40")
         ttk.Checkbutton(row, text="Random offset ±", variable=self.use_offset).grid(row=0, column=0)
@@ -210,6 +213,7 @@ class App:
             "mins": (self.mins, digits),
             "secs": (self.secs, digits),
             "millis": (self.millis, digits),
+            "nanos": (self.nanos, digits),
             "use_offset": (self.use_offset, flag),
             "offset": (self.offset, digits),
             "button": (self.button, one_of(*BUTTON_NAMES)),
@@ -286,12 +290,15 @@ class App:
 
     def _read_config(self):
         """Build a ClickConfig from the inputs; ValueError carries the message to show."""
-        interval = (self._number(self.hours, "Hours") * 3_600_000
-                    + self._number(self.mins, "Mins") * 60_000
-                    + self._number(self.secs, "Secs") * 1000
-                    + self._number(self.millis, "Milliseconds"))
-        if interval < 1:
-            raise ValueError("Interval must be at least 1 ms")
+        # Whole nanoseconds, so the minimum check is exact.
+        interval_ns = ((self._number(self.hours, "Hours") * 3600
+                        + self._number(self.mins, "Mins") * 60
+                        + self._number(self.secs, "Secs")) * 1_000_000_000
+                       + self._number(self.millis, "Milliseconds") * 1_000_000
+                       + self._number(self.nanos, "Nanoseconds"))
+        if interval_ns < MIN_INTERVAL_NS:
+            raise ValueError(f"Interval must be at least {MIN_INTERVAL_MS:g} ms ({MIN_INTERVAL_NS} nanoseconds)")
+        interval = interval_ns / 1_000_000
         offset = self._number(self.offset, "Random offset") if self.use_offset.get() else 0
         repeat = 0
         if self.repeat_mode.get() == "count":

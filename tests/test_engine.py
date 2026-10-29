@@ -7,7 +7,7 @@ import time
 import unittest
 
 
-from engine import ClickConfig, ClickEngine, next_delay
+from engine import MIN_INTERVAL_MS, ClickConfig, ClickEngine, next_delay
 
 # Shared CI machines (GitHub sets CI=true) oversleep by 10-80 ms per wait, so
 # there the timing tests only catch hangs and bursts. Real machines get the
@@ -102,11 +102,32 @@ class ClickEngineTest(unittest.TestCase):
         self.assertEqual(self.engine.stop_reason, "Esc pressed")
 
     def test_rejects_bad_config(self):
-        for bad in (ClickConfig(interval_ms=0), ClickConfig(button="side"),
+        for bad in (ClickConfig(interval_ms=0), ClickConfig(interval_ms=0.09), ClickConfig(button="side"),
                     ClickConfig(random_offset_ms=-1), ClickConfig(repeat=-1)):
             with self.assertRaises(ValueError):
                 self.engine.start(bad)
         self.assertFalse(self.engine.running)
+
+    def test_fastest_interval(self):
+        self.run_for(0.5, interval_ms=MIN_INTERVAL_MS)
+        # 0.5 s / 0.1 ms = 5000 clicks: timed by watching the clock, not sleeping.
+        self.assertGreaterEqual(self.engine.clicks, 1 if SHARED_CI else 4000)
+        self.assertLessEqual(self.engine.clicks, 5001)
+
+    def test_fractional_interval(self):
+        self.run_for(0.5, interval_ms=1.5)  # 1 ms + 500000 ns
+        # 0.5 s / 1.5 ms = 333 clicks.
+        self.assertGreaterEqual(self.engine.clicks, 1 if SHARED_CI else 320)
+        self.assertLessEqual(self.engine.clicks, 334)
+
+    def test_stop_is_quick_at_the_fastest_interval(self):
+        self.engine.start(ClickConfig(interval_ms=MIN_INTERVAL_MS))
+        time.sleep(0.1)
+        started = time.perf_counter()
+        self.engine.stop()
+        self.engine.join(5)
+        self.assertFalse(self.engine.running)
+        self.assertLess(time.perf_counter() - started, 1.0 if SHARED_CI else 0.05)
 
 
 class NextDelayTest(unittest.TestCase):
@@ -119,9 +140,13 @@ class NextDelayTest(unittest.TestCase):
         self.assertLessEqual(max(delays), 0.140)
         self.assertGreater(len(set(delays)), 40)
 
-    def test_offset_larger_than_interval_never_below_1ms(self):
+    def test_offset_larger_than_interval_never_below_the_minimum(self):
         delays = [next_delay(ClickConfig(interval_ms=5, random_offset_ms=40)) for _ in range(500)]
-        self.assertGreaterEqual(min(delays), 0.001)
+        self.assertGreaterEqual(min(delays), MIN_INTERVAL_MS / 1000)
+
+    def test_fraction_of_a_millisecond_is_kept(self):
+        self.assertEqual(next_delay(ClickConfig(interval_ms=1.5)), 0.0015)
+        self.assertEqual(next_delay(ClickConfig(interval_ms=MIN_INTERVAL_MS)), 0.0001)
 
 
 if __name__ == "__main__":

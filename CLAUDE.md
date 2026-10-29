@@ -34,7 +34,7 @@ Features:
 Requirements that always apply:
 - Clicking never blocks the UI.
 - Esc or the mouse in the top-left corner stops clicking immediately.
-- Inputs are validated (no empty/negative values, interval ≥ 1 ms).
+- Inputs are validated (no empty/negative values, interval ≥ 0.1 ms, `engine.MIN_INTERVAL_NS`).
 - The status line shows Running/Stopped and the click count.
 
 ## Commands
@@ -60,7 +60,7 @@ Several threads; only the main thread touches tkinter:
   - `PointPicker`: a pynput hook that swallows the pick click.
   - `MouseListener` (recording) and `KeySource` (hotkeys): keys are named by virtual-key code, and modifiers come from `GetAsyncKeyState`.
   - Also: DPI awareness, registry dark mode, DWM title bars, beeps, and the settings folder.
-- `engine.ClickEngine` clicks on a background thread against `perf_counter` deadlines, sleeping at most 50 ms at a time so stop and the corner fail-safe react fast. Don't swap `time.sleep` for `Event.wait`, which has about 15.6 ms granularity.
+- `engine.ClickEngine` clicks on a background thread against `perf_counter` deadlines, sleeping at most 50 ms at a time so stop and the corner fail-safe react fast. Don't swap `time.sleep` for `Event.wait`, which has about 15.6 ms granularity. Waits under 2 ms (`SPIN_SECONDS`, intervals set with the nanoseconds box) spin on `perf_counter` instead. Real clicks top out around 3,500/s at the cursor and 1,500/s at a picked point on the dev PC.
 - `hotkeys.HotkeyListener` holds the combo logic. `theme.py` uses `vista` for light and a styled `clam` for dark.
 
 Tests use a fake mouse and must never send real input or write the real `%APPDATA%` file (`App(root, settings_path=...)`).

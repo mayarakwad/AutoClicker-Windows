@@ -22,10 +22,19 @@ FAILSAFE_MARGIN = 2
 # quickly even when the interval is long.
 POLL_SECONDS = 0.05
 
+# Shortest interval: 0.1 ms, up to about 10,000 clicks a second.
+MIN_INTERVAL_NS = 100_000
+MIN_INTERVAL_MS = MIN_INTERVAL_NS / 1_000_000
+
+# Waits shorter than this are timed by watching the clock, because sleep
+# can't time anything under about a millisecond. That keeps one CPU core
+# busy, but only while clicking this fast.
+SPIN_SECONDS = 0.002
+
 
 @dataclass
 class ClickConfig:
-    interval_ms: int = 100
+    interval_ms: float = 100    # may have a fraction (the window's nanoseconds box), e.g. 1.5
     random_offset_ms: int = 0   # each delay is the interval ± up to this much
     button: str = "left"
     double: bool = False
@@ -48,11 +57,11 @@ class PlaybackConfig:
 
 
 def next_delay(config):
-    """Seconds until the next click, with the random offset applied (never under 1 ms)."""
+    """Seconds until the next click, with the random offset applied (never under the minimum)."""
     ms = config.interval_ms
     if config.random_offset_ms:
         ms += random.randint(-config.random_offset_ms, config.random_offset_ms)
-    return max(ms, 1) / 1000
+    return max(ms, MIN_INTERVAL_MS) / 1000
 
 
 class ClickEngine:
@@ -78,8 +87,8 @@ class ClickEngine:
                     raise ValueError(f"Bad recorded step: {step}")
             target = self._play
         else:
-            if config.interval_ms < 1:
-                raise ValueError("Interval must be at least 1 ms")
+            if config.interval_ms < MIN_INTERVAL_MS:
+                raise ValueError(f"Interval must be at least {MIN_INTERVAL_MS:g} ms ({MIN_INTERVAL_NS} nanoseconds)")
             if config.random_offset_ms < 0:
                 raise ValueError("Random offset can't be negative")
             if config.repeat < 0:
@@ -106,8 +115,9 @@ class ClickEngine:
     def _run(self, config):
         button = config.button
         count = 2 if config.double else 1
-        next_click = time.perf_counter() + next_delay(config)
-        while self._wait_until(next_click):
+        delay = next_delay(config)
+        next_click = time.perf_counter() + delay
+        while self._wait_until(next_click, spin=delay < SPIN_SECONDS):
             if config.position is None:
                 self._mouse.click(button, count)
             else:
@@ -116,7 +126,8 @@ class ClickEngine:
             if config.repeat and self.clicks >= config.repeat:
                 self.stop_reason = "finished"
                 return
-            next_click += next_delay(config)
+            delay = next_delay(config)
+            next_click += delay
             now = time.perf_counter()
             if next_click < now:
                 # Fell behind (busy system): carry on from now instead of
@@ -128,8 +139,9 @@ class ClickEngine:
         next_click = time.perf_counter()
         while True:
             for step in steps:
-                next_click += step.delay_ms / 1000
-                if not self._wait_until(next_click):
+                delay = step.delay_ms / 1000
+                next_click += delay
+                if not self._wait_until(next_click, spin=delay < SPIN_SECONDS):
                     return
                 self._mouse.click_at(step.x, step.y, step.button)
                 self.clicks += 1
@@ -138,8 +150,12 @@ class ClickEngine:
                 self.stop_reason = "finished"
                 return
 
-    def _wait_until(self, deadline):
-        """Sleep until `deadline`. Returns False if stopped or the fail-safe tripped."""
+    def _wait_until(self, deadline, spin=False):
+        """Wait until `deadline`. Returns False if stopped or the fail-safe tripped.
+
+        With `spin`, the last SPIN_SECONDS are timed by watching the clock
+        instead of sleeping; stop and the fail-safe are checked just before.
+        """
         while True:
             if self._stop_event.is_set():
                 return False
@@ -149,9 +165,13 @@ class ClickEngine:
             remaining = deadline - time.perf_counter()
             if remaining <= 0:
                 return True
+            if spin and remaining <= SPIN_SECONDS:
+                while time.perf_counter() < deadline:
+                    time.sleep(0)  # lets the window and hotkey threads run meanwhile
+                return True
             # time.sleep uses a high-resolution timer on Windows (Python 3.11+),
             # so short intervals stay accurate even while the window is minimized.
-            time.sleep(min(remaining, POLL_SECONDS))
+            time.sleep(min(remaining - (SPIN_SECONDS if spin else 0), POLL_SECONDS))
 
     def _in_failsafe_corner(self):
         x, y = self._mouse.position
