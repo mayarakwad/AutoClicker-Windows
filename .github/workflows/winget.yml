@@ -79,6 +79,7 @@ jobs:
         timeout-minutes: 20
         run: |
           winget settings --enable LocalManifestFiles
+          if ($LASTEXITCODE -ne 0) { Write-Output "::warning title=winget settings::--enable LocalManifestFiles exited with $LASTEXITCODE" }
           $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6818349-7A33-412C-B8E2-1B567D7D4CAA}_is1'
           $failed = $false
           # Posts the end of a log as an annotation, which is readable without signing in.
@@ -112,7 +113,7 @@ jobs:
               $failed = $true
               continue
             }
-            Write-Output "  ok: installed $($case.Exe)"
+            Write-Output "::notice title=winget install --scope $($case.Scope)::installed $($case.Exe)"
             $uninstaller = (Get-ItemProperty -LiteralPath $case.Key).UninstallString.Trim('"')
             Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
             for ($i = 0; $i -lt 240 -and (Test-Path -LiteralPath $case.Exe); $i++) { Start-Sleep -Milliseconds 250 }
@@ -120,10 +121,11 @@ jobs:
               Write-Output "::error title=Uninstall failed::--scope $($case.Scope) left $($case.Exe)"
               $failed = $true
             } else {
-              Write-Output "  ok: uninstalled"
+              Write-Output "::notice title=Uninstall --scope $($case.Scope)::removed $($case.Exe)"
             }
           }
-          if ($failed) { exit 1 }
+          # Explicit, so a native command's leftover exit code doesn't decide the result.
+          if ($failed) { exit 1 } else { exit 0 }
 
       - name: Submit to microsoft/winget-pkgs
         shell: pwsh
