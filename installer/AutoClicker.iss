@@ -8,7 +8,8 @@
 ; same choices on the command line:
 ;   AutoClicker-Setup.exe /VERYSILENT /CURRENTUSER /DIR="D:\Apps\AutoClicker" /TASKS="desktopicon,taskbarpin"
 ;   AutoClicker-Setup.exe /VERYSILENT /ALLUSERS /TASKS="desktopicon"
-; Both tasks are ticked by default, so a silent install without /TASKS does both.
+; Both tasks are ticked on a first install, so a first silent install without
+; /TASKS does both; updates keep the earlier choices unless /TASKS is given.
 
 #define AppName "AutoClicker"
 #define AppExe "AutoClicker.exe"
@@ -56,6 +57,11 @@ DisableWelcomePage=no
 MinVersion=10.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#if Ver >= 0x07000000
+; Inno Setup 7 builds a 32-bit Setup by default, which would start the 32-bit
+; PowerShell for the taskbar pin. Inno Setup 6 Setups run it 64-bit already.
+SetupArchitecture=x64
+#endif
 WizardStyle=modern
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
@@ -151,10 +157,11 @@ var
   Delta: Integer;
 begin
   if (CurPageID = wpFinished) and PinFailed then begin
-    { The caption already ends with a line break, so one more leaves a blank line. }
+    { The caption already ends with a line break, so one more leaves a blank line;
+      the one after the note keeps the gap above the controls below it. }
     WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10 +
       'Windows didn''t let Setup pin AutoClicker to the taskbar. To pin it yourself, open Start, ' +
-      'type AutoClicker, right-click it in the results and choose Pin to taskbar.';
+      'type AutoClicker, right-click it in the results and choose Pin to taskbar.' + #13#10;
     { Setup sized the label and placed the controls under it before this event,
       so grow the label to fit and move those controls down to match. }
     Delta := WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);

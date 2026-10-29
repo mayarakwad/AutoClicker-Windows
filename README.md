@@ -27,7 +27,7 @@ Silent installs take the same choices on the command line. In PowerShell or cmd,
 .\AutoClicker-Setup.exe /VERYSILENT /ALLUSERS /DIR="D:\Apps\AutoClicker" /TASKS="desktopicon,taskbarpin"
 ```
 
-Use `/CURRENTUSER` for just me. `/TASKS` lists the shortcuts to make; without it, both are made.
+Use `/CURRENTUSER` for just me. `/TASKS` lists the shortcuts to make. Without it, a first install makes both and an update keeps your earlier choices.
 
 ### Without installing: one command
 
