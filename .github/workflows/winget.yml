@@ -58,6 +58,7 @@ jobs:
 
       - name: Install winget if missing
         shell: pwsh
+        timeout-minutes: 10
         run: |
           if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
             Install-PackageProvider -Name NuGet -Force | Out-Null
@@ -68,39 +69,65 @@ jobs:
 
       - name: Validate the manifests
         shell: pwsh
+        timeout-minutes: 5
         run: |
           winget validate --manifest $env:MANIFESTS --disable-interactivity
           if ($LASTEXITCODE -ne 0) { Write-Output "::error title=winget validate failed::exit code $LASTEXITCODE"; exit 1 }
 
       - name: Install and uninstall through winget
         shell: pwsh
+        timeout-minutes: 20
         run: |
           winget settings --enable LocalManifestFiles
           $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6818349-7A33-412C-B8E2-1B567D7D4CAA}_is1'
           $failed = $false
+          # Posts the end of a log as an annotation, which is readable without signing in.
+          function Show-Log([string] $Title, [string] $Path) {
+            if (-not (Test-Path -LiteralPath $Path)) { return }
+            $tail = (Get-Content -LiteralPath $Path -Tail 40) -join "`n"
+            if ($tail.Length -gt 3500) { $tail = $tail.Substring($tail.Length - 3500) }
+            Write-Output ("::warning title=$Title::" + ($tail -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'))
+          }
           foreach ($case in @(
               @{ Scope = 'user'; Exe = "$env:LOCALAPPDATA\Programs\AutoClicker\AutoClicker.exe"; Key = "HKCU:\$key" },
               @{ Scope = 'machine'; Exe = "$env:ProgramFiles\AutoClicker\AutoClicker.exe"; Key = "HKLM:\$key" })) {
             Write-Output "== winget install --scope $($case.Scope)"
-            winget install --manifest $env:MANIFESTS --scope $case.Scope --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
-            $code = $LASTEXITCODE
-            if ($code -ne 0 -or -not (Test-Path -LiteralPath $case.Exe) -or -not (Test-Path -LiteralPath $case.Key)) {
-              Write-Output "::error title=winget install failed::--scope $($case.Scope): exit code $code; $($case.Exe) exists: $(Test-Path -LiteralPath $case.Exe)"
+            $log = "$env:RUNNER_TEMP\winget-$($case.Scope).log"
+            $winget = Start-Process -FilePath winget -PassThru -NoNewWindow -ArgumentList @(
+              'install', '--manifest', "`"$env:MANIFESTS`"", '--scope', $case.Scope, '--silent', '--disable-interactivity',
+              '--accept-package-agreements', '--accept-source-agreements', '--verbose-logs', '--log', "`"$log`"")
+            if (-not $winget.WaitForExit(300000)) {
+              $running = (Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'winget|AutoClicker|Setup|unins|\.tmp' } |
+                ForEach-Object { "$($_.Name) [$($_.ProcessId)] $($_.CommandLine)" }) -join '; '
+              Write-Output "::error title=winget install timed out::--scope $($case.Scope) still running after 5 minutes. Processes: $running"
+              Show-Log "winget log ($($case.Scope))" $log
+              Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'winget|AutoClicker|\.tmp' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
               $failed = $true
               continue
             }
+            $code = $winget.ExitCode
+            if ($code -ne 0 -or -not (Test-Path -LiteralPath $case.Exe) -or -not (Test-Path -LiteralPath $case.Key)) {
+              Write-Output "::error title=winget install failed::--scope $($case.Scope): exit code $code; $($case.Exe) exists: $(Test-Path -LiteralPath $case.Exe)"
+              Show-Log "winget log ($($case.Scope))" $log
+              $failed = $true
+              continue
+            }
+            Write-Output "  ok: installed $($case.Exe)"
             $uninstaller = (Get-ItemProperty -LiteralPath $case.Key).UninstallString.Trim('"')
             Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
             for ($i = 0; $i -lt 240 -and (Test-Path -LiteralPath $case.Exe); $i++) { Start-Sleep -Milliseconds 250 }
             if (Test-Path -LiteralPath $case.Exe) {
               Write-Output "::error title=Uninstall failed::--scope $($case.Scope) left $($case.Exe)"
               $failed = $true
+            } else {
+              Write-Output "  ok: uninstalled"
             }
           }
           if ($failed) { exit 1 }
 
       - name: Submit to microsoft/winget-pkgs
         shell: pwsh
+        timeout-minutes: 10
         run: |
           if (-not $env:WINGET_TOKEN) {
             Write-Output "::notice title=winget manifests not submitted::Add a WINGET_TOKEN secret to submit them automatically, or submit the winget-manifests artifact by hand (see the README)."
