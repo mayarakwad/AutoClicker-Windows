@@ -1,7 +1,8 @@
-# Builds AutoClicker.exe on a GitHub-hosted Windows machine, runs the tests
-# there, and checks the built exe starts. Download it from the run's Artifacts.
-# Pushing a version tag (git tag v1.0.1 && git push origin v1.0.1) also
-# publishes the exe as a public GitHub Release.
+# Builds AutoClicker.exe and AutoClicker-Setup.exe on a GitHub-hosted Windows
+# machine, runs the tests there, checks the built exe starts, and installs and
+# uninstalls the installer both for one user and for all users. Download both
+# from the run's Artifacts. Pushing a version tag (git tag v1.0.2 && git push
+# origin v1.0.2) also publishes them as a public GitHub Release.
 name: Windows build
 
 on:
@@ -46,11 +47,28 @@ jobs:
         shell: cmd
         run: build.bat
 
-      - name: Upload the exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          # The runner image usually has it already; build_installer.bat finds it.
+          $found = (Get-Command ISCC.exe -ErrorAction SilentlyContinue) -or
+            (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 7\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe") -contains $true
+          if (-not $found) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Build AutoClicker-Setup.exe
+        shell: cmd
+        run: build_installer.bat
+
+      - name: Upload the exe and installer
         uses: actions/upload-artifact@v4
         with:
           name: AutoClicker-Windows
-          path: dist/AutoClicker.exe
+          path: |
+            dist/AutoClicker.exe
+            dist/AutoClicker-Setup.exe
           if-no-files-found: error
 
       - name: Check the built exe starts
@@ -66,6 +84,10 @@ jobs:
           }
           taskkill /PID $app.Id /T /F | Out-Null  # /T: the one-file exe runs the app as a child process
 
+      - name: Check the installer installs and uninstalls
+        shell: pwsh
+        run: .github/test_installer.ps1 -Setup dist\AutoClicker-Setup.exe
+
       - name: Publish release (v* tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -73,15 +95,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > release-notes.md <<'EOF'
-          AutoClicker for Windows 10 and 11. Download with caution: the exe isn't code-signed.
+          AutoClicker for Windows 10 and 11. Download with caution: neither file is code-signed.
 
-          Download and start it from PowerShell:
+          **Installer:** download **AutoClicker-Setup.exe** and run it. It lets you install for all users or just for you, choose the folder, and add a desktop shortcut and a taskbar pin. Uninstall it from Settings > Apps.
+
+          **Without installing:** download **AutoClicker.exe** and run it, or download and start it from PowerShell:
 
           ```
           $ProgressPreference='SilentlyContinue'; $d="$env:LOCALAPPDATA\AutoClicker"; New-Item -ItemType Directory -Force $d | Out-Null; Invoke-WebRequest https://github.com/mayarakwad/AutoClicker-Windows/releases/latest/download/AutoClicker.exe -OutFile "$d\AutoClicker.exe"; Start-Process "$d\AutoClicker.exe"
           ```
 
-          If Windows says "An Application Control policy has blocked this file", Smart App Control is on and blocks unsigned apps; run it from source instead (see the README).
+          If Windows says "An Application Control policy has blocked this file", Smart App Control is on and blocks unsigned apps; run it from source instead (see the README). A browser download shows a SmartScreen warning the first time: click More info, then Run anyway.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/AutoClicker.exe \
+          gh release create "$GITHUB_REF_NAME" dist/AutoClicker-Setup.exe dist/AutoClicker.exe \
             --title "AutoClicker $GITHUB_REF_NAME" --notes-file release-notes.md

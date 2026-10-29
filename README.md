@@ -5,9 +5,33 @@ Python 3.12 and tkinter, with pynput and Win32 for mouse control and global hotk
 
 This is the Windows-only copy of [AutoClicker](https://github.com/mayarakwad/AutoClicker), which also has a macOS version. Changes are made there and exported here.
 
-## Install with one command
+## Install
 
-Paste this into PowerShell. It downloads the latest release to `%LOCALAPPDATA%\AutoClicker` and starts it:
+### Installer (recommended)
+
+Download **[AutoClicker-Setup.exe](https://github.com/mayarakwad/AutoClicker-Windows/releases/latest/download/AutoClicker-Setup.exe)** from the latest release and run it. Setup asks:
+
+- **Install for all users or just for you.** All users installs to `C:\Program Files\AutoClicker` and needs admin rights. Just me installs to `%LOCALAPPDATA%\Programs\AutoClicker` and doesn't.
+- **Where to install.** Click **Browse** to choose another folder.
+- **Shortcuts.** A Start menu shortcut is always made. **Create a desktop shortcut** and **Pin to taskbar** are ticked; untick the ones you don't want.
+  - For all users, the desktop shortcut goes on every user's desktop. The taskbar pin is only for the user who runs Setup.
+  - Windows has no supported way for installers to pin apps, and newer Windows 11 builds ignore Setup's request. If that happens, the last page of Setup says so: open Start, type **AutoClicker**, right-click it in the results and choose **Pin to taskbar**.
+
+To update, run the newer Setup. It closes AutoClicker first, installs to the same folder and remembers your choices. To move AutoClicker to another folder, uninstall it, then install again.
+
+To uninstall, open **Settings > Apps** (**Installed apps** on Windows 11, **Apps & features** on Windows 10), find **AutoClicker** and choose **Uninstall** (on Windows 11 it's in the **...** menu). This also unpins it from the taskbar for the account that runs the uninstall; anyone else who pinned it right-clicks the icon and chooses **Unpin from taskbar**. Your settings in `%APPDATA%\AutoClicker` are kept.
+
+Silent installs take the same choices on the command line. In PowerShell or cmd, in the folder with the download:
+
+```
+.\AutoClicker-Setup.exe /VERYSILENT /ALLUSERS /DIR="D:\Apps\AutoClicker" /TASKS="desktopicon,taskbarpin"
+```
+
+Use `/CURRENTUSER` for just me. `/TASKS` lists the shortcuts to make; without it, both are made.
+
+### Without installing: one command
+
+Paste this into PowerShell. It downloads the latest release to `%LOCALAPPDATA%\AutoClicker` and starts it, with no Start menu entry or uninstaller:
 
 ```
 $ProgressPreference='SilentlyContinue'; $d="$env:LOCALAPPDATA\AutoClicker"; New-Item -ItemType Directory -Force $d | Out-Null; Invoke-WebRequest https://github.com/mayarakwad/AutoClicker-Windows/releases/latest/download/AutoClicker.exe -OutFile "$d\AutoClicker.exe"; Start-Process "$d\AutoClicker.exe"
@@ -15,14 +39,14 @@ $ProgressPreference='SilentlyContinue'; $d="$env:LOCALAPPDATA\AutoClicker"; New-
 
 Run the same line again to update; close AutoClicker first.
 
-**Download with caution:** the exe isn't code-signed, which matters in two cases.
+### Download with caution
+
+Neither the installer nor the exe is code-signed, which matters in two cases.
 
 - **Smart App Control:** Windows 11's Smart App Control blocks unsigned programs outright, with no "Run anyway". The error is "An Application Control policy has blocked this file".
   - On a PC with it turned on, run from source instead (below).
   - `make_shortcut.bat` then puts an **AutoClicker** shortcut on the Desktop that runs the app through the virtual environment's `pythonw.exe`. That file is signed by the Python Software Foundation, so it's allowed.
 - **SmartScreen:** a copy downloaded with a browser shows a SmartScreen warning the first time. Click **More info**, then **Run anyway**.
-
-Releases are published by the GitHub build when a version tag is pushed: `git tag v1.0.1` then `git push origin v1.0.1`.
 
 ## Build the .exe
 
@@ -33,6 +57,20 @@ build.bat
 This creates the virtual environment if needed, installs `requirements.txt`, and builds `dist\AutoClicker.exe`: a single file of about 11 MB with no console window, made by PyInstaller `--onefile --windowed`. The exe has the app icon and version details (Properties > Details).
 
 To change the icon, edit and run `.venv\Scripts\python assets\make_icon.py`, then rebuild.
+
+## Build the installer
+
+Install [Inno Setup](https://jrsoftware.org/isdl.php) 6.3 or later (or `winget install JRSoftware.InnoSetup`), then:
+
+```
+build_installer.bat
+```
+
+This runs `build.bat` if `dist\AutoClicker.exe` isn't built yet, then compiles `installer\AutoClicker.iss` into `dist\AutoClicker-Setup.exe`. The installer's version is read from the exe. `installer\pin_taskbar.ps1` pins and unpins the taskbar shortcut.
+
+## Publish a release
+
+Update the version in `version_info.txt`, then push a version tag: `git tag v1.0.2` then `git push origin v1.0.2`. The GitHub build publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` to the release.
 
 ## Run from source
 

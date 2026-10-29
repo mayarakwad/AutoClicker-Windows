@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Windows-only copy of github.com/mayarakwad/AutoClicker (local folder `C:\Projects\AutoClicker`). `tools/export_windows.py` in that project writes this folder from its last commit:
 - It copies everything except the macOS-only files.
-- It lays the main project's `windows/` folder on top. That folder holds this README, this CLAUDE.md, the Windows-only `platforms/__init__.py`, and `.github/workflows/build-windows.yml`.
+- It lays the main project's `windows/` folder on top. That folder holds this README, this CLAUDE.md, the Windows-only `platforms/__init__.py`, `.github/workflows/build-windows.yml`, `.github/test_installer.ps1`, `build_installer.bat` and `installer/`.
 
 **Make code changes in the main project, commit them there, then export:**
 
@@ -44,10 +44,20 @@ Requirements that always apply:
 .venv\Scripts\python -m unittest          # all tests
 .venv\Scripts\pip install -r requirements.txt
 build.bat                                 # -> dist\AutoClicker.exe
+build_installer.bat                       # -> dist\AutoClicker-Setup.exe (needs Inno Setup 6.3+)
 make_shortcut.bat                         # Desktop shortcut running from source (for Smart App Control PCs)
 ```
 
-Pushing to GitHub runs `.github/workflows/build-windows.yml` on windows-latest: unit tests, build, upload the exe, check it starts. Pushing a `v*` tag also publishes the exe as a release; the README's one-command install downloads `releases/latest/download/AutoClicker.exe`.
+Pushing to GitHub runs `.github/workflows/build-windows.yml` on windows-latest: unit tests, build the exe and the installer, upload both, check the exe starts, then `.github/test_installer.ps1` installs and uninstalls the installer silently (just me in a chosen folder, and all users) and checks the files, shortcuts and Apps entry. Pushing a `v*` tag also publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` as a release; the README links `releases/latest/download/AutoClicker-Setup.exe`, and its one-command install downloads `releases/latest/download/AutoClicker.exe`. The release version comes from `version_info.txt`; bump it before tagging.
+
+## Installer
+
+`installer/AutoClicker.iss` (Inno Setup 6.3 or later; 7 works too) packs `dist\AutoClicker.exe` into `dist\AutoClicker-Setup.exe`:
+- `PrivilegesRequired=lowest` with `PrivilegesRequiredOverridesAllowed=dialog commandline` gives the "all users / just me" choice. All users installs to `C:\Program Files\AutoClicker`; just me to `%LOCALAPPDATA%\Programs\AutoClicker`. `{autoprograms}`/`{autodesktop}` follow that choice.
+- Keep the `AppId` GUID unchanged; it ties upgrades and uninstall together. `.github/test_installer.ps1` uses it too.
+- Asks for the folder only on a first install (`DisableDirPage=auto`); updates reuse it.
+- Tasks: `desktopicon` and `taskbarpin`, both ticked by default (a silent install without `/TASKS` does both). `[InstallDelete]` removes an earlier desktop shortcut when an update unticks it. Windows has no supported pin API, so `installer/pin_taskbar.ps1` invokes the taskbar's own pin command through a temporary `HKCU\Software\Classes\*\shell\AutoClickerTaskbarPin` verb. It runs as the signed-in user (`ExecAsOriginalUser`), checks the `User Pinned\TaskBar` folder for the result, and the Finished page tells the user how to pin by hand if Windows refused. Newer Windows 11 builds refuse. Its exit codes (2 ignored, 3 no shortcut, 4 no answer, 5 error) go to Setup's log. The uninstaller runs it with `-Target <exe> -Unpin` through plain `Exec`, because `ExecAsOriginalUser` is Setup-only; for an all-users uninstall it unpins only for the account that approved the UAC prompt.
+- Settings in `%APPDATA%\AutoClicker` are left on uninstall.
 
 GitHub only shows logs to signed-in users. `.github/annotate_test_failures.py` posts failing tests as annotations, readable via `api.github.com/repos/mayarakwad/AutoClicker-Windows/check-runs/<job id>/annotations`. On Windows PowerShell 5.1, pass commit messages with `git commit -F <file>`, because double quotes inside `-m` get mangled.
 
