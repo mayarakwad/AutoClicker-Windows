@@ -2,6 +2,7 @@
 *.bat text eol=crlf
 # bash can't run scripts with CRLF line endings.
 *.sh text eol=lf
+mac_installer/scripts/* text eol=lf
 *.ico binary
 *.icns binary
 *.png binary
