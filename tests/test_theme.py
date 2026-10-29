@@ -1,4 +1,5 @@
 """Theme tests on a hidden Tk window."""
+import gc
 import sys
 import tkinter as tk
 import unittest
@@ -35,6 +36,12 @@ class ApplyTest(unittest.TestCase):
     def tearDown(self):
         theme.apply(self.root, "light")
         self.root.destroy()
+        # Free the Tk interpreter here, on the main thread. Left to a later
+        # garbage collection, it can be freed on whatever thread runs it
+        # (e.g. subprocess's reader threads), which makes Tcl abort with
+        # "Tcl_AsyncDelete: async handler deleted by the wrong thread".
+        del self.root, self.combo, self.dialog
+        gc.collect()
 
     def list_color(self):
         popdown = self.combo.tk.call("ttk::combobox::PopdownWindow", self.combo)
@@ -60,15 +67,16 @@ class ApplyTest(unittest.TestCase):
         # background or drop-down overrides, just each window's appearance.
         native = ttk.Style(self.root).theme_use()
         background = self.root.cget("background")
+        darkened = []  # a plain list: a Mock would keep the Tk windows alive in a reference cycle
         with mock.patch.multiple(theme, NATIVE_DARK=True, NATIVE_THEME=native,
-                                 set_window_dark=mock.DEFAULT) as patched:
+                                 set_window_dark=lambda window, dark: darkened.append((window, dark))):
             theme.apply(self.root, "dark")
             self.assertEqual(ttk.Style(self.root).theme_use(), native)
             self.assertEqual(theme.current, "dark")
             self.assertEqual(self.root.cget("background"), background)
-            darkened = [c.args for c in patched["set_window_dark"].call_args_list]
             self.assertIn((self.root, True), darkened)
             self.assertIn((self.dialog, True), darkened)
+        darkened.clear()
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS look")
     def test_macos_keeps_native_look_in_both_modes(self):
