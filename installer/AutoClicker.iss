@@ -173,8 +173,10 @@ var
   ResultCode: Integer;
 begin
   if (CurUninstallStep = usUninstall) and FileExists(ExpandConstant('{app}\pin_taskbar.ps1')) then begin
-    if Exec(PowerShellExe, PinScript + ' -Target "' + ExpandConstant('{app}\{#AppExe}') + '" -Unpin',
-        '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    if not Exec(PowerShellExe, PinScript + ' -Target "' + ExpandConstant('{app}\{#AppExe}') + '" -Unpin',
+        '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Log('Could not remove the taskbar pin: ' + SysErrorMessage(ResultCode))
+    else if ResultCode = 0 then
       Log('Removed any taskbar pin for this account.')
     else
       Log('Could not remove the taskbar pin: ' + PinResult(ResultCode) + '.');
