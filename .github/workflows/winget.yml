@@ -1,0 +1,111 @@
+# Makes the winget manifests for a published release (winget/make_manifests.py),
+# validates them, installs and uninstalls AutoClicker through winget from them,
+# and uploads them as the run's "winget-manifests" artifact.
+#
+# With a WINGET_TOKEN secret (a classic GitHub token with the public_repo scope),
+# it also submits them to microsoft/winget-pkgs as a pull request, which is how
+# `winget install mayarakwad.AutoClicker` gets each new version.
+#
+# The Windows build workflow runs this after publishing a release. To run it for
+# an existing release: Actions > winget > Run workflow, with the tag (v1.0.2).
+name: winget
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.0.2"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      MANIFESTS: ${{ github.workspace }}\winget-manifests
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download the release's installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern AutoClicker-Setup.exe --dir release
+
+      - name: Write the manifests
+        shell: bash
+        run: python winget/make_manifests.py --tag "$TAG" --installer release/AutoClicker-Setup.exe --out "$MANIFESTS"
+
+      - name: Upload the manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: winget-manifests
+          if-no-files-found: error
+
+      - name: Install winget if missing
+        shell: pwsh
+        run: |
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Force | Out-Null
+            Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
+            Repair-WinGetPackageManager -AllUsers -Latest
+          }
+          winget --version
+
+      - name: Validate the manifests
+        shell: pwsh
+        run: |
+          winget validate --manifest $env:MANIFESTS --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=winget validate failed::exit code $LASTEXITCODE"; exit 1 }
+
+      - name: Install and uninstall through winget
+        shell: pwsh
+        run: |
+          winget settings --enable LocalManifestFiles
+          $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E6818349-7A33-412C-B8E2-1B567D7D4CAA}_is1'
+          $failed = $false
+          foreach ($case in @(
+              @{ Scope = 'user'; Exe = "$env:LOCALAPPDATA\Programs\AutoClicker\AutoClicker.exe"; Key = "HKCU:\$key" },
+              @{ Scope = 'machine'; Exe = "$env:ProgramFiles\AutoClicker\AutoClicker.exe"; Key = "HKLM:\$key" })) {
+            Write-Output "== winget install --scope $($case.Scope)"
+            winget install --manifest $env:MANIFESTS --scope $case.Scope --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+            $code = $LASTEXITCODE
+            if ($code -ne 0 -or -not (Test-Path -LiteralPath $case.Exe) -or -not (Test-Path -LiteralPath $case.Key)) {
+              Write-Output "::error title=winget install failed::--scope $($case.Scope): exit code $code; $($case.Exe) exists: $(Test-Path -LiteralPath $case.Exe)"
+              $failed = $true
+              continue
+            }
+            $uninstaller = (Get-ItemProperty -LiteralPath $case.Key).UninstallString.Trim('"')
+            Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+            for ($i = 0; $i -lt 240 -and (Test-Path -LiteralPath $case.Exe); $i++) { Start-Sleep -Milliseconds 250 }
+            if (Test-Path -LiteralPath $case.Exe) {
+              Write-Output "::error title=Uninstall failed::--scope $($case.Scope) left $($case.Exe)"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Submit to microsoft/winget-pkgs
+        shell: pwsh
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Output "::notice title=winget manifests not submitted::Add a WINGET_TOKEN secret to submit them automatically, or submit the winget-manifests artifact by hand (see the README)."
+            exit 0
+          }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN --prtitle "mayarakwad.AutoClicker version $($env:TAG.TrimStart('v'))" $env:MANIFESTS
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=wingetcreate submit failed::exit code $LASTEXITCODE"; exit 1 }

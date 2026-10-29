@@ -25,6 +25,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write  # only used by the last step, to publish a release for v* tags
+    outputs:
+      release_tag: ${{ steps.publish.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,6 +98,7 @@ jobs:
         run: .github/test_installer.ps1 -Setup dist\AutoClicker-Setup.exe
 
       - name: Publish release (v* tags, or a release tag given when run by hand)
+        id: publish
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         shell: bash
         env:
@@ -124,3 +127,13 @@ jobs:
           # --target makes the tag on this commit when it doesn't exist yet (runs by hand).
           gh release create "$TAG" dist/AutoClicker-Setup.exe dist/AutoClicker.exe \
             --target "$GITHUB_SHA" --title "AutoClicker $TAG" --notes-file release-notes.md
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  # Makes, checks and (with a WINGET_TOKEN secret) submits the winget manifests for the new release.
+  winget:
+    needs: build
+    if: needs.build.outputs.release_tag != ''
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: ${{ needs.build.outputs.release_tag }}
+    secrets: inherit
