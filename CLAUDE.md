@@ -48,7 +48,7 @@ build_installer.bat                       # -> dist\AutoClicker-Setup.exe (needs
 make_shortcut.bat                         # Desktop shortcut running from source (for Smart App Control PCs)
 ```
 
-Pushing to GitHub runs `.github/workflows/build-windows.yml` on windows-latest: unit tests, build the exe and the installer, upload both, check the exe starts, then `.github/test_installer.ps1` installs and uninstalls the installer silently (just me in a chosen folder, and all users) and checks the files, shortcuts and Apps entry. Pushing a `v*` tag also publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` as a release; the README links `releases/latest/download/AutoClicker-Setup.exe`, and its one-command install downloads `releases/latest/download/AutoClicker.exe`. The release version comes from `version_info.txt`; bump it before tagging.
+Pushing to GitHub runs `.github/workflows/build-windows.yml` on windows-latest: unit tests, build the exe and the installer, upload both, check the exe starts, then `.github/test_installer.ps1` installs and uninstalls the installer silently (just me in a chosen folder, and all users) and checks the files, shortcuts and Apps entry. Pushing a `v*` tag, or running the workflow by hand with a `release_tag` input such as `v1.0.2` (the step checks it matches the exe's version and makes the tag on the built commit), also publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` as a release; the README links `releases/latest/download/AutoClicker-Setup.exe`, and its one-command install downloads `releases/latest/download/AutoClicker.exe`. The release version comes from `version_info.txt`; bump it before tagging.
 
 ## Installer
 

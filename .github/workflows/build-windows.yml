@@ -2,13 +2,20 @@
 # machine, runs the tests there, checks the built exe starts, and installs and
 # uninstalls the installer both for one user and for all users. Download both
 # from the run's Artifacts. Pushing a version tag (git tag v1.0.2 && git push
-# origin v1.0.2) also publishes them as a public GitHub Release.
+# origin v1.0.2) also publishes them as a public GitHub Release. So does running
+# the workflow by hand (Actions > Windows build > Run workflow) with a release
+# tag such as v1.0.2: the release and its tag are made on the commit it built.
 name: Windows build
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a release with this new tag, e.g. v1.0.2 (must match version_info.txt). Leave empty to only build and test."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -88,12 +95,19 @@ jobs:
         shell: pwsh
         run: .github/test_installer.ps1 -Setup dist\AutoClicker-Setup.exe
 
-      - name: Publish release (v* tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release (v* tags, or a release tag given when run by hand)
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
         run: |
+          # The tag must name the version built into the exe (version_info.txt).
+          version=$(powershell -NoProfile -Command "(Get-Item dist/AutoClicker.exe).VersionInfo.ProductVersion" | tr -d '\r')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error title=Release tag doesn't match the version::$TAG was given, but dist/AutoClicker.exe is version $version (version_info.txt)."
+            exit 1
+          fi
           cat > release-notes.md <<'EOF'
           AutoClicker for Windows 10 and 11. Download with caution: neither file is code-signed.
 
@@ -107,5 +121,6 @@ jobs:
 
           If Windows says "An Application Control policy has blocked this file", Smart App Control is on and blocks unsigned apps; run it from source instead (see the README). A browser download shows a SmartScreen warning the first time: click More info, then Run anyway.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/AutoClicker-Setup.exe dist/AutoClicker.exe \
-            --title "AutoClicker $GITHUB_REF_NAME" --notes-file release-notes.md
+          # --target makes the tag on this commit when it doesn't exist yet (runs by hand).
+          gh release create "$TAG" dist/AutoClicker-Setup.exe dist/AutoClicker.exe \
+            --target "$GITHUB_SHA" --title "AutoClicker $TAG" --notes-file release-notes.md

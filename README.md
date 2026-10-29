@@ -70,7 +70,7 @@ This runs `build.bat` if `dist\AutoClicker.exe` isn't built yet, then compiles `
 
 ## Publish a release
 
-Update the version in `version_info.txt`, then push a version tag: `git tag v1.0.2` then `git push origin v1.0.2`. The GitHub build publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` to the release.
+Update the version in `version_info.txt`, then push a version tag: `git tag v1.0.2` then `git push origin v1.0.2`. Or, on GitHub, open **Actions > Windows build > Run workflow** and enter the tag (for example `v1.0.2`). Either way, the GitHub build tests everything, then publishes `AutoClicker-Setup.exe` and `AutoClicker.exe` to the release. The tag must match the version in `version_info.txt`.
 
 ## Run from source
 
