@@ -37,17 +37,24 @@ class ClickEngineTest(unittest.TestCase):
         self.engine.join(5)
 
     def run_for(self, seconds, **config):
+        """Run for about `seconds`; returns how long it really ran (CI machines oversleep)."""
+        started = time.perf_counter()
         self.engine.start(ClickConfig(**config))
         time.sleep(seconds)
         self.engine.stop()
+        ran = time.perf_counter() - started
         self.engine.join(5)
+        return ran
+
+    def assert_no_bursts(self, ran, interval_ms):
+        # One click per interval actually elapsed (+1 in flight): never a catch-up burst.
+        self.assertLessEqual(self.engine.clicks, ran / (interval_ms / 1000) + 1)
 
     def test_clicks_at_interval(self):
-        self.run_for(0.5, interval_ms=20)
-        # 0.5 s / 20 ms = 25 clicks; allow for timer jitter. Never more than 25
-        # (+1 for timing): no catch-up bursts.
+        ran = self.run_for(0.5, interval_ms=20)
+        # 0.5 s / 20 ms = 25 clicks; allow for timer jitter.
         self.assertGreaterEqual(self.engine.clicks, 1 if SHARED_CI else 20)
-        self.assertLessEqual(self.engine.clicks, 26)
+        self.assert_no_bursts(ran, 20)
         self.assertEqual(self.engine.clicks, len(self.mouse.clicked))
 
     def test_stop_is_quick_with_long_interval(self):
@@ -109,16 +116,16 @@ class ClickEngineTest(unittest.TestCase):
         self.assertFalse(self.engine.running)
 
     def test_fastest_interval(self):
-        self.run_for(0.5, interval_ms=MIN_INTERVAL_MS)
+        ran = self.run_for(0.5, interval_ms=MIN_INTERVAL_MS)
         # 0.5 s / 0.1 ms = 5000 clicks: timed by watching the clock, not sleeping.
         self.assertGreaterEqual(self.engine.clicks, 1 if SHARED_CI else 4000)
-        self.assertLessEqual(self.engine.clicks, 5001)
+        self.assert_no_bursts(ran, MIN_INTERVAL_MS)
 
     def test_fractional_interval(self):
-        self.run_for(0.5, interval_ms=1.5)  # 1 ms + 500000 ns
+        ran = self.run_for(0.5, interval_ms=1.5)  # 1 ms + 500000 ns
         # 0.5 s / 1.5 ms = 333 clicks.
         self.assertGreaterEqual(self.engine.clicks, 1 if SHARED_CI else 320)
-        self.assertLessEqual(self.engine.clicks, 334)
+        self.assert_no_bursts(ran, 1.5)
 
     def test_stop_is_quick_at_the_fastest_interval(self):
         self.engine.start(ClickConfig(interval_ms=MIN_INTERVAL_MS))
